@@ -1,0 +1,71 @@
+name: "CodeQL path1"
+
+on:
+  push:
+    branches: [main]
+#     paths:
+#       - '**/codeql-config-path1.yml'
+#       - 'path1/**'
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 11 * * 6'
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ['javascript']
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      
+    - name: Configure access to private repositories
+      env:
+        TOKEN: ${{ secrets.CENTRAL_QUERIES_ACCESS_TOKEN }}
+      run: |
+        git config --global url."https://${TOKEN}@github.com/kirogum/central-queries".insteadOf "https://github.com/kirogum/central-queries"
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v1
+      with:
+        languages: ${{ matrix.language }}
+        config-file: ./.github/codeql/codeql-config-path1.yml
+        # queries: +security-and-quality
+        
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v1
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v1
+            
+    - name: Clean up CodeQL database before upload
+      id: database-cleanup
+      env:
+        LANGUAGE: ${{ matrix.language }}
+      run: |
+        set -xu
+        DATABASE_DIR="/home/runner/work/_temp/codeql_databases/$LANGUAGE"
+        echo "Cleaning up database in $DATABASE_DIR"
+        for SUB_DIR in log results working; do
+          rm -rf $DATABASE_DIR/$SUB_DIR
+        done
+        echo "Zipping database"
+        DATABASE_ZIP="example2-$LANGUAGE-db.zip"
+        zip -r "$DATABASE_ZIP" "$DATABASE_DIR"
+        echo "::set-output name=zip::$DATABASE_ZIP"
+
+    - uses: tpaschalis/s3-sync-action@master
+      with:
+       args: --acl public-read
+      env:
+         FILE: example2-${{ matrix.language }}-db.zip
+         AWS_REGION: 'us-east-2'
+         AWS_S3_BUCKET: ${{ secrets.AWS_BUCKET }}
+         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
